@@ -82,8 +82,8 @@ func main() {
 				text := currentDate.Format("06-01-02")
 				for _, entry := range entries {
 					if entry.Date != currentDate {
-						text += "\n" + currentDate.Format("06-01-02")
 						currentDate = entry.Date
+						text += "\n" + currentDate.Format("06-01-02")
 					}
 					text += "\n" + entry.Content
 
