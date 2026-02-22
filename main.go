@@ -1,13 +1,21 @@
 package main
 
 import (
+	"log"
+	"os"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 type Project struct {
 	Name  string
-	Tasks map[string]string
+	Tasks map[string][]Entry
+}
+
+type Entry struct {
+	Date    string
+	Content string
 }
 
 type TrailState int
@@ -25,28 +33,38 @@ func defaultText(text string) *tview.TextView {
 }
 
 func main() {
+	logFile, err := os.OpenFile("trail.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	app := tview.NewApplication()
 	state := ViewProjects
 	var currentProject *Project = nil
 	// var currentTask *string = nil
 
-	projects := []Project{
-		Project{
-			Name: "trail",
-			Tasks: map[string]string{
-				"ui":         "* Added some good new things to this bad boi\n* Tried to get layout better\n* Not sure how I want the search to work...",
-				"build":      "* Not sure how to build this bad boi",
-				"versioning": "* [ ] Should get cog in here and some automations to do it for me",
-			},
-		},
-		Project{
-			Name: "asaio-strategy",
-			Tasks: map[string]string{
-				"c#-conversion": "* Converted rest of stuff to native C#\n* [ ] Need to fix notifications\n* TODO: Need to fix storehouses make them selectable",
-				"ui":            "* TODO: Figure out UI for unit automation",
-			},
-		},
-	}
+	// projects := []Project{
+	// 	Project{
+	// 		Name: "trail",
+	// 		Tasks: map[string]string{
+	// 			"ui":         "* Added some good new things to this bad boi\n* Tried to get layout better\n* Not sure how I want the search to work...",
+	// 			"build":      "* Not sure how to build this bad boi",
+	// 			"versioning": "* [ ] Should get cog in here and some automations to do it for me",
+	// 		},
+	// 	},
+	// 	Project{
+	// 		Name: "asaio-strategy",
+	// 		Tasks: map[string]string{
+	// 			"c#-conversion": "* Converted rest of stuff to native C#\n* [ ] Need to fix notifications\n* TODO: Need to fix storehouses make them selectable",
+	// 			"ui":            "* TODO: Figure out UI for unit automation",
+	// 		},
+	// 	},
+	// }
+
+	projects := ProjectsFromFile("/home/asa/dev/trail/26-02-22.md")
 
 	grid := tview.NewGrid().
 		SetRows(0).
@@ -68,8 +86,12 @@ func main() {
 		list.Clear()
 		for name, contents := range project.Tasks {
 			list.AddItem(name, "", 0, func() {
-				// currentTask = &name
-				showTaskContents(contents)
+				text := ""
+				for _, entry := range contents {
+					text += "\n" + entry.Content
+
+				}
+				showTaskContents(text)
 			})
 		}
 		grid.RemoveItem(taskContents)
