@@ -51,8 +51,8 @@ func ProjectsFromFile(path string, projectMap map[string]Project) map[string]Pro
 	var currentProject *string
 	var currentTask *string
 
-	projectRegex, _ := regexp.Compile(`(?:^|\s)@([a-zA-Z0-9_-]+)`)
-	taskRegex, _ := regexp.Compile(`(?:^|\s)\+([a-zA-Z0-9_-]+)`)
+	projectRegex, _ := regexp.Compile(`(?:^|\s)@([a-zA-Z0-9_.-]+)`)
+	taskRegex, _ := regexp.Compile(`(?:^|\s)\+([a-zA-Z0-9_.-]+)`)
 	entryRegex, _ := regexp.Compile(`^(?:\*|-|\s)`)
 	dateRegex, _ := regexp.Compile(`(\d\d-\d\d-\d\d)`)
 	scanner := bufio.NewScanner(file)
