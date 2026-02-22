@@ -4,14 +4,17 @@ import (
 	"bufio"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
+	"time"
 	// "path/filepath"
 )
 
-func parseDirectory(dir string) []Project {
+func ProjectsFromDirectory(dir string) map[string]Project {
+	projectMap := make(map[string]Project)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		// TODO log error to file
+		log.Fatal(err)
 		panic(err)
 	}
 	files := make([]string, 0)
@@ -21,16 +24,19 @@ func parseDirectory(dir string) []Project {
 		}
 		info, err := entry.Info()
 		if err != nil {
-			// TODO log error to file
+			log.Fatal(err)
 			panic(err)
 		}
 		// TODO should I save whole path, is this name only name of file?
 		files = append(files, info.Name())
+		ProjectsFromFile(filepath.Join(dir, info.Name()), projectMap)
 	}
 
-	return nil
+	return projectMap
 }
-func ProjectsFromFile(path string) map[string]Project {
+
+// Optionally pass in existing projectMap to add onto it, nil if want new map
+func ProjectsFromFile(path string, projectMap map[string]Project) map[string]Project {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatal(err)
@@ -38,7 +44,9 @@ func ProjectsFromFile(path string) map[string]Project {
 	}
 	defer file.Close()
 
-	projectMap := make(map[string]Project)
+	if projectMap == nil {
+		projectMap = make(map[string]Project)
+	}
 
 	var currentProject *string
 	var currentTask *string
@@ -46,6 +54,7 @@ func ProjectsFromFile(path string) map[string]Project {
 	projectRegex, _ := regexp.Compile(`(?:^|\s)@([a-zA-Z0-9_-]+)`)
 	taskRegex, _ := regexp.Compile(`(?:^|\s)\+([a-zA-Z0-9_-]+)`)
 	entryRegex, _ := regexp.Compile(`^(?:\*|-|\s)`)
+	dateRegex, _ := regexp.Compile(`(\d\d-\d\d-\d\d)`)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		text := scanner.Text()
@@ -58,11 +67,18 @@ func ProjectsFromFile(path string) map[string]Project {
 				continue
 			}
 			log.Println("Adding entry under project: ", *currentProject, ", task: ", *currentTask)
+			dateMatches := dateRegex.FindAllStringSubmatch(filepath.Base(path), -1)
+			if len(dateMatches) == 0 {
+				log.Println("No date matches")
+				continue
+			}
+			dateMatch := dateMatches[0][1]
+			dateTime, _ := time.Parse("06-01-02", dateMatch)
 
 			// TODO maybe some sanitization here to take out bullets/dashes etc.
 			// TODO handle TODOS
 			entry := Entry{
-				Date:    path,
+				Date:    dateTime,
 				Content: text,
 			}
 			projectMap[*currentProject].Tasks[*currentTask] = append(projectMap[*currentProject].Tasks[*currentTask], entry)

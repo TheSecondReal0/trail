@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -14,7 +16,7 @@ type Project struct {
 }
 
 type Entry struct {
-	Date    string
+	Date    time.Time
 	Content string
 }
 
@@ -46,25 +48,7 @@ func main() {
 	var currentProject *Project = nil
 	// var currentTask *string = nil
 
-	// projects := []Project{
-	// 	Project{
-	// 		Name: "trail",
-	// 		Tasks: map[string]string{
-	// 			"ui":         "* Added some good new things to this bad boi\n* Tried to get layout better\n* Not sure how I want the search to work...",
-	// 			"build":      "* Not sure how to build this bad boi",
-	// 			"versioning": "* [ ] Should get cog in here and some automations to do it for me",
-	// 		},
-	// 	},
-	// 	Project{
-	// 		Name: "asaio-strategy",
-	// 		Tasks: map[string]string{
-	// 			"c#-conversion": "* Converted rest of stuff to native C#\n* [ ] Need to fix notifications\n* TODO: Need to fix storehouses make them selectable",
-	// 			"ui":            "* TODO: Figure out UI for unit automation",
-	// 		},
-	// 	},
-	// }
-
-	projects := ProjectsFromFile("/home/asa/dev/trail/26-02-22.md")
+	projects := ProjectsFromDirectory("/home/asa/dev/trail/notes/")
 
 	grid := tview.NewGrid().
 		SetRows(0).
@@ -72,7 +56,7 @@ func main() {
 		SetBorders(true)
 
 	list := tview.NewList()
-	taskContents := defaultText("")
+	taskContents := tview.NewTextView()
 
 	showTaskContents := func(contents string) {
 		state = ViewContents
@@ -84,10 +68,23 @@ func main() {
 		state = ViewTasks
 		// currentTask = nil
 		list.Clear()
-		for name, contents := range project.Tasks {
+		for name, entries := range project.Tasks {
+			slices.SortStableFunc(entries, func(a, b Entry) int {
+				return b.Date.Compare(a.Date)
+			})
+
 			list.AddItem(name, "", 0, func() {
-				text := ""
-				for _, entry := range contents {
+				if len(entries) == 0 {
+					showTaskContents("")
+					return
+				}
+				currentDate := entries[0].Date
+				text := currentDate.Format("06-01-02")
+				for _, entry := range entries {
+					if entry.Date != currentDate {
+						text += "\n" + currentDate.Format("06-01-02")
+						currentDate = entry.Date
+					}
 					text += "\n" + entry.Content
 
 				}
