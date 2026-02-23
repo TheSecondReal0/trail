@@ -84,6 +84,9 @@ func ProjectsFromFile(path string, projectMap map[string]Project) map[string]Pro
 			projectMap[*currentProject].Tasks[*currentTask] = append(projectMap[*currentProject].Tasks[*currentTask], entry)
 		} else {
 			log.Println("line is new heading")
+			// should not append entries found after another header to the last project/task
+			currentProject = nil
+			currentTask = nil
 			projectMatches := projectRegex.FindAllStringSubmatch(text, -1)
 			if len(projectMatches) == 0 {
 				log.Println("No project matches")

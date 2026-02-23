@@ -35,7 +35,7 @@ func defaultText(text string) *tview.TextView {
 }
 
 func main() {
-	logFile, err := os.OpenFile("trail.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile("trail.log", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -51,18 +51,25 @@ func main() {
 	projects := ProjectsFromDirectory("/home/asa/dev/trail/notes/")
 
 	grid := tview.NewGrid().
-		SetRows(0).
-		SetColumns(0).
-		SetBorders(true)
+		SetRows(1, 0).
+		SetColumns(0) //.
+		// SetBorders(true)
+
+	grid.AddItem(tview.NewTextView().SetText("Trail"), 0, 0, 1, 1, 0, 0, false)
+
+	mainContent := tview.NewFlex()
+	mainContent.SetBorder(true)
+	grid.AddItem(mainContent, 1, 0, 1, 1, 0, 0, false)
 
 	list := tview.NewList()
+	list.SetHighlightFullLine(true)
 	taskContents := tview.NewTextView()
 
 	showTaskContents := func(contents string) {
 		state = ViewContents
 		taskContents.SetText(contents)
-		grid.RemoveItem(list)
-		grid.AddItem(taskContents, 0, 0, 1, 1, 0, 0, false)
+		mainContent.Clear()
+		mainContent.AddItem(taskContents, 0, 1, false)
 	}
 	showTasks := func(project Project) {
 		state = ViewTasks
@@ -91,8 +98,8 @@ func main() {
 				showTaskContents(text)
 			})
 		}
-		grid.RemoveItem(taskContents)
-		grid.AddItem(list, 0, 0, 1, 1, 0, 0, false)
+		mainContent.Clear()
+		mainContent.AddItem(list, 0, 1, false)
 	}
 	showProjects := func() {
 		state = ViewProjects
@@ -104,8 +111,8 @@ func main() {
 				showTasks(p)
 			})
 		}
-		grid.RemoveItem(taskContents)
-		grid.AddItem(list, 0, 0, 1, 1, 0, 0, false)
+		mainContent.Clear()
+		mainContent.AddItem(list, 0, 1, false)
 	}
 
 	showProjects()
