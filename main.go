@@ -44,7 +44,7 @@ type ProjectView struct {
 
 func newProjectView(trailData *TrailData, projectSelected func(Project)) (pv ProjectView) {
 	pv.Root = tview.NewGrid()
-	pv.filter = tview.NewInputField().SetChangedFunc(func(text string) {
+	pv.filter = tview.NewInputField().SetLabel("Filter Projects: ").SetFieldTextColor(tcell.ColorBlack).SetChangedFunc(func(text string) {
 		pv.filterProjects(text)
 	})
 	pv.list = tview.NewList()
