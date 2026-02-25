@@ -32,6 +32,19 @@ type TrailData struct {
 
 // --- Helpers ---
 
+func vimList(list *tview.List) *tview.List {
+	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Rune() {
+		case 'j':
+			return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+		case 'k':
+			return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+		}
+		return event
+	})
+	return list
+}
+
 func defaultText(text string) *tview.TextView {
 	return tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
@@ -186,8 +199,8 @@ func newProjectsScreen(data *TrailData, app *tview.Application) *ProjectsScreen 
 		}
 	})
 
-	ps.list = tview.NewList()
-	ps.taskList = tview.NewList()
+	ps.list = vimList(tview.NewList())
+	ps.taskList = vimList(tview.NewList())
 	ps.taskContent = tview.NewTextView().SetScrollable(true)
 
 	ps.innerPages = tview.NewPages()
@@ -310,7 +323,7 @@ func newTasksScreen(data *TrailData, app *tview.Application) *TasksScreen {
 		}
 	})
 
-	ts.list = tview.NewList()
+	ts.list = vimList(tview.NewList())
 	ts.content = tview.NewTextView().SetScrollable(true)
 
 	ts.innerPages = tview.NewPages()
@@ -420,7 +433,7 @@ func newDaysScreen(data *TrailData, app *tview.Application) *DaysScreen {
 		}
 	})
 
-	ds.list = tview.NewList()
+	ds.list = vimList(tview.NewList())
 	ds.detail = tview.NewTextView().SetScrollable(true)
 
 	ds.innerPages = tview.NewPages()
