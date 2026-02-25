@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,7 +82,67 @@ func renderDaySummary(date time.Time, data *TrailData) string {
 	return result
 }
 
-var screenNames = []string{"projects", "tasks", "days"}
+func renderRecentSummary(days int, data *TrailData) string {
+	if days <= 0 {
+		return ""
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	cutoff := today.AddDate(0, 0, -(days - 1))
+
+	projectNames := make([]string, 0, len(data.Projects))
+	for name := range data.Projects {
+		projectNames = append(projectNames, name)
+	}
+	sort.Strings(projectNames)
+
+	var sb strings.Builder
+	for _, projectName := range projectNames {
+		project := data.Projects[projectName]
+		taskNames := make([]string, 0, len(project.Tasks))
+		for name := range project.Tasks {
+			taskNames = append(taskNames, name)
+		}
+		sort.Strings(taskNames)
+
+		var projectLines strings.Builder
+		for _, taskName := range taskNames {
+			dateMap := make(map[time.Time][]string)
+			for _, entry := range project.Tasks[taskName] {
+				if !entry.Date.Before(cutoff) && !entry.Date.After(today) {
+					dateMap[entry.Date] = append(dateMap[entry.Date], entry.Content)
+				}
+			}
+			if len(dateMap) == 0 {
+				continue
+			}
+
+			dates := make([]time.Time, 0, len(dateMap))
+			for d := range dateMap {
+				dates = append(dates, d)
+			}
+			sort.Slice(dates, func(i, j int) bool {
+				return dates[i].After(dates[j])
+			})
+
+			fmt.Fprintf(&projectLines, "  +%s\n", taskName)
+			for _, date := range dates {
+				fmt.Fprintf(&projectLines, "    %s\n", date.Format("2006-01-02"))
+				for _, content := range dateMap[date] {
+					fmt.Fprintf(&projectLines, "      %s\n", content)
+				}
+			}
+		}
+
+		if projectLines.Len() > 0 {
+			fmt.Fprintf(&sb, "@%s\n", projectName)
+			sb.WriteString(projectLines.String())
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+var screenNames = []string{"projects", "tasks", "days", "recent"}
 
 func switchScreen(pages *tview.Pages, current *string, direction int) {
 	idx := 0
@@ -429,6 +490,58 @@ func (ds *DaysScreen) focusFilter() {
 	ds.app.SetFocus(ds.filter)
 }
 
+// --- RecentScreen ---
+
+type RecentScreen struct {
+	Root    *tview.Grid
+	days    *tview.InputField
+	content *tview.TextView
+	data    *TrailData
+	app     *tview.Application
+}
+
+func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
+	rs := &RecentScreen{data: data, app: app}
+
+	rs.content = tview.NewTextView().SetScrollable(true)
+
+	rs.days = tview.NewInputField().
+		SetLabel("Last N days: ").
+		SetText("28").
+		SetFieldTextColor(tcell.ColorBlack).
+		SetAcceptanceFunc(tview.InputFieldInteger).
+		SetChangedFunc(func(text string) {
+			n, err := strconv.Atoi(text)
+			if err != nil || n <= 0 {
+				rs.content.SetText("")
+				return
+			}
+			rs.content.SetText(renderRecentSummary(n, data))
+		})
+	rs.days.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			app.SetFocus(rs.content)
+		}
+	})
+
+	rs.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	rs.Root.AddItem(rs.days, 0, 0, 1, 1, 0, 0, false)
+	rs.Root.AddItem(rs.content, 1, 0, 1, 1, 0, 0, true)
+
+	rs.content.SetText(renderRecentSummary(28, data))
+	return rs
+}
+
+func (rs *RecentScreen) handleEsc() {
+	if rs.app.GetFocus() == rs.days {
+		rs.app.SetFocus(rs.content)
+	}
+}
+
+func (rs *RecentScreen) focusFilter() {
+	rs.app.SetFocus(rs.days)
+}
+
 // --- Main ---
 
 func main() {
@@ -451,10 +564,12 @@ func main() {
 	ps := newProjectsScreen(&trailData, app)
 	ts := newTasksScreen(&trailData, app)
 	ds := newDaysScreen(&trailData, app)
+	rs := newRecentScreen(&trailData, app)
 
 	rootPages.AddPage("projects", ps.Root, true, true)
 	rootPages.AddPage("tasks", ts.Root, true, false)
 	rootPages.AddPage("days", ds.Root, true, false)
+	rootPages.AddPage("recent", rs.Root, true, false)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -472,6 +587,8 @@ func main() {
 				ts.handleEsc()
 			case "days":
 				ds.handleEsc()
+			case "recent":
+				rs.handleEsc()
 			}
 			return nil
 		}
@@ -484,6 +601,8 @@ func main() {
 					ts.focusFilter()
 				case "days":
 					ds.focusFilter()
+				case "recent":
+					rs.focusFilter()
 				}
 				return nil
 			}
