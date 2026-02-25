@@ -568,7 +568,22 @@ func main() {
 
 	app := tview.NewApplication()
 
-	projects := ProjectsFromDirectory("/home/asa/dev/trail/notes/")
+	notesDir := os.Getenv("TRAIL_NOTES_DIR")
+	if notesDir == "" {
+		notesDir = "~/notes"
+	}
+	if strings.HasPrefix(notesDir, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			panic(err)
+		}
+		notesDir = home + notesDir[1:]
+	}
+	if _, err := os.Stat(notesDir); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stdout, "notes directory not found: %s\n", notesDir)
+		return
+	}
+	projects := ProjectsFromDirectory(notesDir)
 	trailData := TrailData{Projects: projects}
 
 	rootPages := tview.NewPages()
