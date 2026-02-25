@@ -1,15 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
+
+// --- Data Structures ---
 
 type Project struct {
 	Name  string
@@ -21,67 +25,411 @@ type Entry struct {
 	Content string
 }
 
-type TrailState int
-
-const (
-	ViewProjects TrailState = iota
-	ViewTasksOfProject
-	ViewDays
-	ViewContents
-)
-
 type TrailData struct {
 	Projects map[string]Project
 }
 
-type ProjectView struct {
-	Root            *tview.Grid
-	filter          *tview.InputField
-	list            *tview.List
-	trailData       *TrailData
-	projectSelected func(Project)
-}
-
-func newProjectView(trailData *TrailData, projectSelected func(Project)) (pv ProjectView) {
-	pv.Root = tview.NewGrid()
-	pv.filter = tview.NewInputField().SetLabel("Filter Projects: ").SetFieldTextColor(tcell.ColorBlack).SetChangedFunc(func(text string) {
-		pv.filterProjects(text)
-	})
-	pv.list = tview.NewList()
-	pv.Root.AddItem(pv.filter, 0, 0, 1, 1, 0, 0, false)
-	pv.Root.AddItem(pv.list, 1, 0, 1, 1, 0, 0, true)
-	pv.trailData = trailData
-	pv.projectSelected = projectSelected
-	pv.showAllProjects()
-	return pv
-}
-
-func (pv ProjectView) showAllProjects() {
-	pv.list.Clear()
-	for _, p := range (*pv.trailData).Projects {
-		pv.list.AddItem(p.Name, "", 0, func() {
-			pv.projectSelected(p)
-		})
-	}
-}
-
-func (pv ProjectView) filterProjects(filter string) {
-	pv.list.Clear()
-	for _, p := range (*pv.trailData).Projects {
-		if !strings.Contains(p.Name, filter) {
-			continue
-		}
-		pv.list.AddItem(p.Name, "", 0, func() {
-			pv.projectSelected(p)
-		})
-	}
-}
+// --- Helpers ---
 
 func defaultText(text string) *tview.TextView {
 	return tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText(text)
 }
+
+func renderDaySummary(date time.Time, data *TrailData) string {
+	var sb strings.Builder
+
+	projectNames := make([]string, 0, len(data.Projects))
+	for name := range data.Projects {
+		projectNames = append(projectNames, name)
+	}
+	sort.Strings(projectNames)
+
+	for _, projectName := range projectNames {
+		project := data.Projects[projectName]
+		taskNames := make([]string, 0, len(project.Tasks))
+		for name := range project.Tasks {
+			taskNames = append(taskNames, name)
+		}
+		sort.Strings(taskNames)
+
+		var projectLines strings.Builder
+		for _, taskName := range taskNames {
+			entries := project.Tasks[taskName]
+			var taskLines strings.Builder
+			for _, entry := range entries {
+				if entry.Date.Year() == date.Year() && entry.Date.YearDay() == date.YearDay() {
+					fmt.Fprintf(&taskLines, "    %s\n", entry.Content)
+				}
+			}
+			if taskLines.Len() > 0 {
+				fmt.Fprintf(&projectLines, "  +%s\n", taskName)
+				projectLines.WriteString(taskLines.String())
+			}
+		}
+		if projectLines.Len() > 0 {
+			fmt.Fprintf(&sb, "@%s\n", projectName)
+			sb.WriteString(projectLines.String())
+		}
+	}
+
+	result := sb.String()
+	if result == "" {
+		return "(no entries for this day)"
+	}
+	return result
+}
+
+var screenNames = []string{"projects", "tasks", "days"}
+
+func switchScreen(pages *tview.Pages, current *string, direction int) {
+	idx := 0
+	for i, name := range screenNames {
+		if name == *current {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + direction + len(screenNames)) % len(screenNames)
+	*current = screenNames[idx]
+	pages.SwitchToPage(*current)
+}
+
+// --- ProjectsScreen ---
+
+type ProjectsScreen struct {
+	Root           *tview.Grid
+	innerPages     *tview.Pages
+	filter         *tview.InputField
+	list           *tview.List
+	taskList       *tview.List
+	taskContent    *tview.TextView
+	data           *TrailData
+	app            *tview.Application
+	currentProject *Project
+}
+
+func newProjectsScreen(data *TrailData, app *tview.Application) *ProjectsScreen {
+	ps := &ProjectsScreen{data: data, app: app}
+
+	ps.filter = tview.NewInputField().
+		SetLabel("Filter Projects: ").
+		SetFieldTextColor(tcell.ColorBlack).
+		SetChangedFunc(func(text string) {
+			ps.populateProjects(text)
+		})
+	ps.filter.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			app.SetFocus(ps.list)
+		}
+	})
+
+	ps.list = tview.NewList()
+	ps.taskList = tview.NewList()
+	ps.taskContent = tview.NewTextView().SetScrollable(true)
+
+	ps.innerPages = tview.NewPages()
+	ps.innerPages.AddPage("list", ps.list, true, true)
+	ps.innerPages.AddPage("tasks", ps.taskList, true, false)
+	ps.innerPages.AddPage("content", ps.taskContent, true, false)
+
+	ps.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ps.Root.AddItem(ps.filter, 0, 0, 1, 1, 0, 0, false)
+	ps.Root.AddItem(ps.innerPages, 1, 0, 1, 1, 0, 0, true)
+
+	ps.populateProjects("")
+	return ps
+}
+
+func (ps *ProjectsScreen) populateProjects(filter string) {
+	ps.list.Clear()
+	names := make([]string, 0, len(ps.data.Projects))
+	for name := range ps.data.Projects {
+		if filter == "" || strings.Contains(name, filter) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		p := ps.data.Projects[name]
+		ps.list.AddItem(p.Name, "", 0, func() {
+			ps.showTasks(p)
+		})
+	}
+}
+
+func (ps *ProjectsScreen) showTasks(project Project) {
+	ps.currentProject = &project
+	ps.taskList.Clear()
+
+	taskNames := make([]string, 0, len(project.Tasks))
+	for name := range project.Tasks {
+		taskNames = append(taskNames, name)
+	}
+	sort.Strings(taskNames)
+
+	for _, name := range taskNames {
+		entries := slices.Clone(project.Tasks[name])
+		slices.SortStableFunc(entries, func(a, b Entry) int {
+			return b.Date.Compare(a.Date)
+		})
+		ps.taskList.AddItem(name, "", 0, func() {
+			ps.showTaskContent(entries)
+		})
+	}
+	ps.innerPages.SwitchToPage("tasks")
+	ps.app.SetFocus(ps.taskList)
+}
+
+func (ps *ProjectsScreen) showTaskContent(entries []Entry) {
+	if len(entries) == 0 {
+		ps.taskContent.SetText("")
+	} else {
+		currentDate := entries[0].Date
+		text := currentDate.Format("06-01-02")
+		for _, entry := range entries {
+			if entry.Date != currentDate {
+				currentDate = entry.Date
+				text += "\n" + currentDate.Format("06-01-02")
+			}
+			text += "\n" + entry.Content
+		}
+		ps.taskContent.SetText(text)
+	}
+	ps.innerPages.SwitchToPage("content")
+	ps.app.SetFocus(ps.taskContent)
+}
+
+func (ps *ProjectsScreen) handleEsc() {
+	if ps.app.GetFocus() == ps.filter {
+		ps.app.SetFocus(ps.list)
+		return
+	}
+	name, _ := ps.innerPages.GetFrontPage()
+	switch name {
+	case "content":
+		ps.innerPages.SwitchToPage("tasks")
+		ps.app.SetFocus(ps.taskList)
+	case "tasks":
+		ps.currentProject = nil
+		ps.innerPages.SwitchToPage("list")
+		ps.app.SetFocus(ps.list)
+	}
+}
+
+func (ps *ProjectsScreen) focusFilter() {
+	ps.app.SetFocus(ps.filter)
+}
+
+// --- TasksScreen ---
+
+type TasksScreen struct {
+	Root       *tview.Grid
+	innerPages *tview.Pages
+	filter     *tview.InputField
+	list       *tview.List
+	content    *tview.TextView
+	data       *TrailData
+	app        *tview.Application
+}
+
+func newTasksScreen(data *TrailData, app *tview.Application) *TasksScreen {
+	ts := &TasksScreen{data: data, app: app}
+
+	ts.filter = tview.NewInputField().
+		SetLabel("Filter Tasks: ").
+		SetFieldTextColor(tcell.ColorBlack).
+		SetChangedFunc(func(text string) {
+			ts.populateTasks(text)
+		})
+	ts.filter.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			app.SetFocus(ts.list)
+		}
+	})
+
+	ts.list = tview.NewList()
+	ts.content = tview.NewTextView().SetScrollable(true)
+
+	ts.innerPages = tview.NewPages()
+	ts.innerPages.AddPage("list", ts.list, true, true)
+	ts.innerPages.AddPage("content", ts.content, true, false)
+
+	ts.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ts.Root.AddItem(ts.filter, 0, 0, 1, 1, 0, 0, false)
+	ts.Root.AddItem(ts.innerPages, 1, 0, 1, 1, 0, 0, true)
+
+	ts.populateTasks("")
+	return ts
+}
+
+func (ts *TasksScreen) populateTasks(filter string) {
+	ts.list.Clear()
+
+	type taskItem struct {
+		label   string
+		entries []Entry
+	}
+
+	var items []taskItem
+	for _, project := range ts.data.Projects {
+		for taskName, entries := range project.Tasks {
+			label := project.Name + "/" + taskName
+			if filter == "" || strings.Contains(label, filter) {
+				items = append(items, taskItem{label: label, entries: entries})
+			}
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].label < items[j].label
+	})
+
+	for _, item := range items {
+		entries := slices.Clone(item.entries)
+		slices.SortStableFunc(entries, func(a, b Entry) int {
+			return b.Date.Compare(a.Date)
+		})
+		label := item.label
+		ts.list.AddItem(label, "", 0, func() {
+			ts.showContent(entries)
+		})
+	}
+}
+
+func (ts *TasksScreen) showContent(entries []Entry) {
+	if len(entries) == 0 {
+		ts.content.SetText("")
+	} else {
+		currentDate := entries[0].Date
+		text := currentDate.Format("06-01-02")
+		for _, entry := range entries {
+			if entry.Date != currentDate {
+				currentDate = entry.Date
+				text += "\n" + currentDate.Format("06-01-02")
+			}
+			text += "\n" + entry.Content
+		}
+		ts.content.SetText(text)
+	}
+	ts.innerPages.SwitchToPage("content")
+	ts.app.SetFocus(ts.content)
+}
+
+func (ts *TasksScreen) handleEsc() {
+	if ts.app.GetFocus() == ts.filter {
+		ts.app.SetFocus(ts.list)
+		return
+	}
+	name, _ := ts.innerPages.GetFrontPage()
+	if name == "content" {
+		ts.innerPages.SwitchToPage("list")
+		ts.app.SetFocus(ts.list)
+	}
+}
+
+func (ts *TasksScreen) focusFilter() {
+	ts.app.SetFocus(ts.filter)
+}
+
+// --- DaysScreen ---
+
+type DaysScreen struct {
+	Root       *tview.Grid
+	innerPages *tview.Pages
+	filter     *tview.InputField
+	list       *tview.List
+	detail     *tview.TextView
+	data       *TrailData
+	app        *tview.Application
+}
+
+func newDaysScreen(data *TrailData, app *tview.Application) *DaysScreen {
+	ds := &DaysScreen{data: data, app: app}
+
+	ds.filter = tview.NewInputField().
+		SetLabel("Filter Dates: ").
+		SetFieldTextColor(tcell.ColorBlack).
+		SetChangedFunc(func(text string) {
+			ds.populateDays(text)
+		})
+	ds.filter.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			app.SetFocus(ds.list)
+		}
+	})
+
+	ds.list = tview.NewList()
+	ds.detail = tview.NewTextView().SetScrollable(true)
+
+	ds.innerPages = tview.NewPages()
+	ds.innerPages.AddPage("list", ds.list, true, true)
+	ds.innerPages.AddPage("detail", ds.detail, true, false)
+
+	ds.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ds.Root.AddItem(ds.filter, 0, 0, 1, 1, 0, 0, false)
+	ds.Root.AddItem(ds.innerPages, 1, 0, 1, 1, 0, 0, true)
+
+	ds.populateDays("")
+	return ds
+}
+
+func (ds *DaysScreen) populateDays(filter string) {
+	ds.list.Clear()
+
+	dateSet := make(map[time.Time]struct{})
+	for _, project := range ds.data.Projects {
+		for _, entries := range project.Tasks {
+			for _, entry := range entries {
+				dateSet[entry.Date] = struct{}{}
+			}
+		}
+	}
+
+	dates := make([]time.Time, 0, len(dateSet))
+	for d := range dateSet {
+		dates = append(dates, d)
+	}
+	sort.Slice(dates, func(i, j int) bool {
+		return dates[i].After(dates[j])
+	})
+
+	for _, date := range dates {
+		label := date.Format("2006-01-02")
+		if filter != "" && !strings.Contains(label, filter) {
+			continue
+		}
+		d := date
+		ds.list.AddItem(label, "", 0, func() {
+			ds.showDetail(d)
+		})
+	}
+}
+
+func (ds *DaysScreen) showDetail(date time.Time) {
+	summary := renderDaySummary(date, ds.data)
+	ds.detail.SetText(summary)
+	ds.innerPages.SwitchToPage("detail")
+	ds.app.SetFocus(ds.detail)
+}
+
+func (ds *DaysScreen) handleEsc() {
+	if ds.app.GetFocus() == ds.filter {
+		ds.app.SetFocus(ds.list)
+		return
+	}
+	name, _ := ds.innerPages.GetFrontPage()
+	if name == "detail" {
+		ds.innerPages.SwitchToPage("list")
+		ds.app.SetFocus(ds.list)
+	}
+}
+
+func (ds *DaysScreen) focusFilter() {
+	ds.app.SetFocus(ds.filter)
+}
+
+// --- Main ---
 
 func main() {
 	logFile, err := os.OpenFile("trail.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -93,112 +441,57 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	app := tview.NewApplication()
-	state := ViewProjects
-	var currentProject *Project = nil
-	// var currentTask *string = nil
 
 	projects := ProjectsFromDirectory("/home/asa/dev/trail/notes/")
-	trailData := TrailData{
-		Projects: projects,
-	}
+	trailData := TrailData{Projects: projects}
 
-	grid := tview.NewGrid().
-		SetRows(0).
-		SetColumns(0).
-		SetBorders(true)
+	rootPages := tview.NewPages()
+	currentScreen := "projects"
 
-	list := tview.NewList()
-	taskContents := tview.NewTextView()
+	ps := newProjectsScreen(&trailData, app)
+	ts := newTasksScreen(&trailData, app)
+	ds := newDaysScreen(&trailData, app)
 
-	showTaskContents := func(contents string) {
-		state = ViewContents
-		taskContents.SetText(contents)
-		grid.RemoveItem(list)
-		grid.AddItem(taskContents, 0, 0, 1, 1, 0, 0, false)
-	}
-	showTasks := func(project Project) {
-		state = ViewTasksOfProject
-		// currentTask = nil
-		list.Clear()
-		for name, entries := range project.Tasks {
-			slices.SortStableFunc(entries, func(a, b Entry) int {
-				return b.Date.Compare(a.Date)
-			})
-
-			list.AddItem(name, "", 0, func() {
-				if len(entries) == 0 {
-					showTaskContents("")
-					return
-				}
-				currentDate := entries[0].Date
-				text := currentDate.Format("06-01-02")
-				for _, entry := range entries {
-					if entry.Date != currentDate {
-						currentDate = entry.Date
-						text += "\n" + currentDate.Format("06-01-02")
-					}
-					text += "\n" + entry.Content
-
-				}
-				showTaskContents(text)
-			})
-		}
-		grid.RemoveItem(taskContents)
-		grid.AddItem(list, 0, 0, 1, 1, 0, 0, false)
-	}
-
-	projectView := newProjectView(&trailData, func(p Project) {
-		currentProject = &p
-		showTasks(p)
-	})
-	showProjects := func() {
-		state = ViewProjects
-		currentProject = nil
-		projectView.showAllProjects()
-		grid.RemoveItem(taskContents)
-		grid.AddItem(projectView.Root, 0, 0, 1, 1, 0, 0, false)
-		app.SetFocus(projectView.list)
-	}
-
-	showProjects()
+	rootPages.AddPage("projects", ps.Root, true, true)
+	rootPages.AddPage("tasks", ts.Root, true, false)
+	rootPages.AddPage("days", ds.Root, true, false)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape {
-			switch state {
-			case ViewTasksOfProject:
-				showProjects()
-			case ViewContents:
-				showTasks(*currentProject)
+		switch event.Key() {
+		case tcell.KeyTab:
+			switchScreen(rootPages, &currentScreen, 1)
+			return nil
+		case tcell.KeyBacktab:
+			switchScreen(rootPages, &currentScreen, -1)
+			return nil
+		case tcell.KeyEscape:
+			switch currentScreen {
+			case "projects":
+				ps.handleEsc()
+			case "tasks":
+				ts.handleEsc()
+			case "days":
+				ds.handleEsc()
 			}
 			return nil
 		}
 		if event.Rune() == '/' {
-			switch state {
-			case ViewProjects:
-				app.SetFocus(projectView.filter)
+			if _, ok := app.GetFocus().(*tview.InputField); !ok {
+				switch currentScreen {
+				case "projects":
+					ps.focusFilter()
+				case "tasks":
+					ts.focusFilter()
+				case "days":
+					ds.focusFilter()
+				}
 				return nil
-				// case ViewTasksOfProject:
-				// 	showProjects()
-				// case ViewContents:
-				// 	showTasks(*currentProject)
 			}
 		}
 		return event
 	})
 
-	// search := tview.NewInputField().
-	// 	SetLabel("Search").
-	// 	SetFieldTextColor(tcell.ColorBlack)
-	// search.SetChangedFunc(func(text string) {
-	// })
-	// search.SetDoneFunc(func(key tcell.Key) {
-	// 	if key != tcell.KeyEnter {
-	// 		return
-	// 	}
-	// 	search.SetText("")
-	// })
-
-	if err := app.SetRoot(grid, true).SetFocus(list).Run(); err != nil {
+	if err := app.SetRoot(rootPages, true).SetFocus(rootPages).Run(); err != nil {
 		panic(err)
 	}
 }
