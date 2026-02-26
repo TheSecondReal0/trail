@@ -131,7 +131,6 @@ func newProjectsScreen(data *TrailData, app *tview.Application) *ProjectsScreen 
 
 	ps.filter = tview.NewInputField().
 		SetLabel("Filter Projects: ").
-		SetFieldTextColor(tcell.ColorBlack).
 		SetChangedFunc(func(text string) {
 			ps.populateProjects(text)
 		})
@@ -255,7 +254,6 @@ func newTasksScreen(data *TrailData, app *tview.Application) *TasksScreen {
 
 	ts.filter = tview.NewInputField().
 		SetLabel("Filter Tasks: ").
-		SetFieldTextColor(tcell.ColorBlack).
 		SetChangedFunc(func(text string) {
 			ts.populateTasks(text)
 		})
@@ -365,7 +363,6 @@ func newDaysScreen(data *TrailData, app *tview.Application) *DaysScreen {
 
 	ds.filter = tview.NewInputField().
 		SetLabel("Filter Dates: ").
-		SetFieldTextColor(tcell.ColorBlack).
 		SetChangedFunc(func(text string) {
 			ds.populateDays(text)
 		})
@@ -473,6 +470,10 @@ func renderRecentBoxes(days int, data *TrailData, width int) string {
 	}
 	sort.Strings(projectNames)
 
+	const blue = "[#7aa2f7]"
+	const orange = "[#e0af68]"
+	const reset = "[-]"
+
 	var sb strings.Builder
 
 	for _, projectName := range projectNames {
@@ -506,25 +507,25 @@ func renderRecentBoxes(days int, data *TrailData, width int) string {
 				return dates[i].After(dates[j])
 			})
 
+			taskTitle := " +" + taskName + " "
 			if !first {
 				// gap line: " │" + spaces + "│ "  (width = 2 + n + 2)
-				fmt.Fprintf(&taskBlocks, " │%s│ \n", strings.Repeat(" ", max(0, width-4)))
+				fmt.Fprintf(&taskBlocks, " %s│%s%s%s│%s \n", blue, reset, strings.Repeat(" ", max(0, width-4)), blue, reset)
 			}
-			taskTitle := " +" + taskName + " "
-			// inner top: " │ ┌" + taskTitle + "─"×n + "┐ │ "  (width = 4 + len + n + 4)
-			fmt.Fprintf(&taskBlocks, " │ ┌%s%s┐ │ \n", taskTitle, strings.Repeat("─", max(0, width-8-len(taskTitle))))
+			// inner top: " │ ┌ " + "+taskName " + "─"×n + "┐ │ "  (width = 5 + (len-1) + n + 4)
+			fmt.Fprintf(&taskBlocks, " %s│ ┌ %s+%s %s%s┐ │%s \n", blue, orange, taskName, blue, strings.Repeat("─", max(0, width-8-len(taskTitle))), reset)
 			for _, date := range dates {
 				dateStr := date.Format("2006-01-02") // always 10 chars
 				// date line: " │ │ " + date + spaces + "│ │ "  (width = 5 + 10 + n + 4)
-				fmt.Fprintf(&taskBlocks, " │ │ %s%s│ │ \n", dateStr, strings.Repeat(" ", max(0, width-19)))
+				fmt.Fprintf(&taskBlocks, " %s│ │%s %s%s%s│ │%s \n", blue, reset, dateStr, strings.Repeat(" ", max(0, width-19)), blue, reset)
 				for _, content := range dateMap[date] {
 					cw := len([]rune(content))
 					// content line: " │ │  " + content + spaces + "│ │ "  (width = 6 + cw + n + 4)
-					fmt.Fprintf(&taskBlocks, " │ │  %s%s│ │ \n", content, strings.Repeat(" ", max(0, width-10-cw)))
+					fmt.Fprintf(&taskBlocks, " %s│ │%s  %s%s%s│ │%s \n", blue, reset, content, strings.Repeat(" ", max(0, width-10-cw)), blue, reset)
 				}
 			}
 			// inner bottom: " │ └" + "─"×n + "┘ │ "  (width = 4 + n + 4)
-			fmt.Fprintf(&taskBlocks, " │ └%s┘ │ \n", strings.Repeat("─", max(0, width-8)))
+			fmt.Fprintf(&taskBlocks, " %s│ └%s┘ │%s \n", blue, strings.Repeat("─", max(0, width-8)), reset)
 			hasContent = true
 			first = false
 		}
@@ -533,11 +534,11 @@ func renderRecentBoxes(days int, data *TrailData, width int) string {
 			continue
 		}
 		projTitle := " @" + projectName + " "
-		// outer top: " ┌" + projTitle + "─"×n + "┐ "  (width = 2 + len + n + 2)
-		fmt.Fprintf(&sb, " ┌%s%s┐ \n", projTitle, strings.Repeat("─", max(0, width-4-len(projTitle))))
+		// outer top: " ┌ @" + projectName + " " + "─"×n + "┐ "  (width = 2 + len + n + 2)
+		fmt.Fprintf(&sb, " %s┌ %s@%s %s%s┐%s \n", blue, orange, projectName, blue, strings.Repeat("─", max(0, width-4-len(projTitle))), reset)
 		sb.WriteString(taskBlocks.String())
 		// outer bottom: " └" + "─"×n + "┘ "  (width = 2 + n + 2)
-		fmt.Fprintf(&sb, " └%s┘ \n", strings.Repeat("─", max(0, width-4)))
+		fmt.Fprintf(&sb, " %s└%s┘%s \n", blue, strings.Repeat("─", max(0, width-4)), reset)
 		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
@@ -546,12 +547,11 @@ func renderRecentBoxes(days int, data *TrailData, width int) string {
 func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 	rs := &RecentScreen{data: data, app: app, lastN: 28}
 
-	rs.content = tview.NewTextView().SetScrollable(true).SetWrap(false)
+	rs.content = tview.NewTextView().SetScrollable(true).SetWrap(false).SetDynamicColors(true)
 
 	rs.days = tview.NewInputField().
 		SetLabel("Last N days: ").
 		SetText("28").
-		SetFieldTextColor(tcell.ColorBlack).
 		SetAcceptanceFunc(tview.InputFieldInteger).
 		SetChangedFunc(func(text string) {
 			n, err := strconv.Atoi(text)
@@ -622,6 +622,20 @@ func main() {
 	defer logFile.Close()
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	tview.Styles = tview.Theme{
+		PrimitiveBackgroundColor:    tcell.NewRGBColor(26, 27, 38),   // #1a1b26 — background
+		ContrastBackgroundColor:     tcell.NewRGBColor(22, 22, 30),   // #16161e — input field bg
+		MoreContrastBackgroundColor: tcell.NewRGBColor(65, 72, 104),  // #414868 — autocomplete bg
+		BorderColor:                 tcell.NewRGBColor(65, 72, 104),  // #414868 — borders
+		TitleColor:                  tcell.NewRGBColor(122, 162, 247),// #7aa2f7 — blue, box titles
+		GraphicsColor:               tcell.NewRGBColor(65, 72, 104),  // #414868 — graphics
+		PrimaryTextColor:            tcell.NewRGBColor(169, 177, 214),// #a9b1d6 — foreground
+		SecondaryTextColor:          tcell.NewRGBColor(122, 162, 247),// #7aa2f7 — blue labels
+		TertiaryTextColor:           tcell.NewRGBColor(120, 124, 153),// #787c99 — dimmed
+		InverseTextColor:            tcell.NewRGBColor(26, 27, 38),   // #1a1b26 — bg for inverse
+		ContrastSecondaryTextColor:  tcell.NewRGBColor(169, 177, 214),// #a9b1d6 — text in input fields
+	}
 
 	app := tview.NewApplication()
 
