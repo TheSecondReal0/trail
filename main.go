@@ -96,65 +96,6 @@ func renderDaySummary(date time.Time, data *TrailData) string {
 	return result
 }
 
-func renderRecentSummary(days int, data *TrailData) string {
-	if days <= 0 {
-		return ""
-	}
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-	cutoff := today.AddDate(0, 0, -(days - 1))
-
-	projectNames := make([]string, 0, len(data.Projects))
-	for name := range data.Projects {
-		projectNames = append(projectNames, name)
-	}
-	sort.Strings(projectNames)
-
-	var sb strings.Builder
-	for _, projectName := range projectNames {
-		project := data.Projects[projectName]
-		taskNames := make([]string, 0, len(project.Tasks))
-		for name := range project.Tasks {
-			taskNames = append(taskNames, name)
-		}
-		sort.Strings(taskNames)
-
-		var projectLines strings.Builder
-		for _, taskName := range taskNames {
-			dateMap := make(map[time.Time][]string)
-			for _, entry := range project.Tasks[taskName] {
-				if !entry.Date.Before(cutoff) && !entry.Date.After(today) {
-					dateMap[entry.Date] = append(dateMap[entry.Date], entry.Content)
-				}
-			}
-			if len(dateMap) == 0 {
-				continue
-			}
-
-			dates := make([]time.Time, 0, len(dateMap))
-			for d := range dateMap {
-				dates = append(dates, d)
-			}
-			sort.Slice(dates, func(i, j int) bool {
-				return dates[i].After(dates[j])
-			})
-
-			fmt.Fprintf(&projectLines, "  +%s\n", taskName)
-			for _, date := range dates {
-				fmt.Fprintf(&projectLines, "    %s\n", date.Format("2006-01-02"))
-				for _, content := range dateMap[date] {
-					fmt.Fprintf(&projectLines, "      %s\n", content)
-				}
-			}
-		}
-
-		if projectLines.Len() > 0 {
-			fmt.Fprintf(&sb, "@%s\n", projectName)
-			sb.WriteString(projectLines.String())
-			sb.WriteString("\n")
-		}
-	}
-	return sb.String()
-}
 
 var screenNames = []string{"projects", "tasks", "days", "recent"}
 
@@ -514,10 +455,85 @@ type RecentScreen struct {
 	app     *tview.Application
 }
 
+func renderRecentBoxes(days int, data *TrailData) string {
+	if days <= 0 {
+		return ""
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	cutoff := today.AddDate(0, 0, -(days - 1))
+
+	projectNames := make([]string, 0, len(data.Projects))
+	for name := range data.Projects {
+		projectNames = append(projectNames, name)
+	}
+	sort.Strings(projectNames)
+
+	const fill = 200 // wider than any terminal; tview clips at screen edge
+	var sb strings.Builder
+
+	for _, projectName := range projectNames {
+		project := data.Projects[projectName]
+		taskNames := make([]string, 0, len(project.Tasks))
+		for name := range project.Tasks {
+			taskNames = append(taskNames, name)
+		}
+		sort.Strings(taskNames)
+
+		var taskBlocks strings.Builder
+		hasContent := false
+		first := true
+
+		for _, taskName := range taskNames {
+			dateMap := make(map[time.Time][]string)
+			for _, entry := range project.Tasks[taskName] {
+				if !entry.Date.Before(cutoff) && !entry.Date.After(today) {
+					dateMap[entry.Date] = append(dateMap[entry.Date], entry.Content)
+				}
+			}
+			if len(dateMap) == 0 {
+				continue
+			}
+
+			dates := make([]time.Time, 0, len(dateMap))
+			for d := range dateMap {
+				dates = append(dates, d)
+			}
+			sort.Slice(dates, func(i, j int) bool {
+				return dates[i].After(dates[j])
+			})
+
+			if !first {
+				fmt.Fprintf(&taskBlocks, " │\n") // gap between tasks
+			}
+			taskTitle := " +" + taskName + " "
+			fmt.Fprintf(&taskBlocks, " │ ┌%s%s\n", taskTitle, strings.Repeat("─", fill))
+			for _, date := range dates {
+				fmt.Fprintf(&taskBlocks, " │ │ %s\n", date.Format("2006-01-02"))
+				for _, content := range dateMap[date] {
+					fmt.Fprintf(&taskBlocks, " │ │  %s\n", content)
+				}
+			}
+			fmt.Fprintf(&taskBlocks, " │ └%s\n", strings.Repeat("─", fill))
+			hasContent = true
+			first = false
+		}
+
+		if !hasContent {
+			continue
+		}
+		projTitle := " @" + projectName + " "
+		fmt.Fprintf(&sb, " ┌%s%s\n", projTitle, strings.Repeat("─", fill))
+		sb.WriteString(taskBlocks.String())
+		fmt.Fprintf(&sb, " └%s\n", strings.Repeat("─", fill))
+		sb.WriteString("\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 	rs := &RecentScreen{data: data, app: app}
 
-	rs.content = tview.NewTextView().SetScrollable(true)
+	rs.content = tview.NewTextView().SetScrollable(true).SetWrap(false)
 
 	rs.days = tview.NewInputField().
 		SetLabel("Last N days: ").
@@ -530,7 +546,7 @@ func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 				rs.content.SetText("")
 				return
 			}
-			rs.content.SetText(renderRecentSummary(n, data))
+			rs.content.SetText(renderRecentBoxes(n, data))
 		})
 	rs.days.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -542,7 +558,7 @@ func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 	rs.Root.AddItem(rs.days, 0, 0, 1, 1, 0, 0, false)
 	rs.Root.AddItem(rs.content, 1, 0, 1, 1, 0, 0, true)
 
-	rs.content.SetText(renderRecentSummary(28, data))
+	rs.content.SetText(renderRecentBoxes(28, data))
 	return rs
 }
 
