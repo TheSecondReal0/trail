@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"time"
-	// "path/filepath"
 )
 
 func ProjectsFromDirectory(dir string) map[string]Project {
@@ -20,6 +19,9 @@ func ProjectsFromDirectory(dir string) map[string]Project {
 	files := make([]string, 0)
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+		if filepath.Ext(entry.Name()) != ".md" {
 			continue
 		}
 		info, err := entry.Info()

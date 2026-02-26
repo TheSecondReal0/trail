@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -558,7 +559,20 @@ func (rs *RecentScreen) focusFilter() {
 // --- Main ---
 
 func main() {
-	logFile, err := os.OpenFile("trail.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			panic(err)
+		}
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	logDir := filepath.Join(stateDir, "trail")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		panic(err)
+	}
+	logPath := filepath.Join(logDir, "trail.log")
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -568,21 +582,11 @@ func main() {
 
 	app := tview.NewApplication()
 
-	notesDir := os.Getenv("TRAIL_NOTES_DIR")
-	if notesDir == "" {
-		notesDir = "~/notes"
+	notesDir, err := os.Getwd()
+	if err != nil {
+		panic(err)
 	}
-	if strings.HasPrefix(notesDir, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			panic(err)
-		}
-		notesDir = home + notesDir[1:]
-	}
-	if _, err := os.Stat(notesDir); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stdout, "notes directory not found: %s\n", notesDir)
-		return
-	}
+
 	projects := ProjectsFromDirectory(notesDir)
 	trailData := TrailData{Projects: projects}
 
