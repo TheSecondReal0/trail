@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/TheSecondReal0/trail/compare/v1.0.0...v1.0.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* retry release ([828ea0b](https://github.com/TheSecondReal0/trail/commit/828ea0b517020dd7b73b359a63f8a846b4fa4f01))
+
 ## 1.0.0 (2026-02-26)
 
 
