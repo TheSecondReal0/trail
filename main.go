@@ -448,15 +448,20 @@ func (ds *DaysScreen) focusFilter() {
 // --- RecentScreen ---
 
 type RecentScreen struct {
-	Root    *tview.Grid
-	days    *tview.InputField
-	content *tview.TextView
-	data    *TrailData
-	app     *tview.Application
+	Root      *tview.Grid
+	days      *tview.InputField
+	content   *tview.TextView
+	data      *TrailData
+	app       *tview.Application
+	lastWidth int
+	lastN     int
 }
 
-func renderRecentBoxes(days int, data *TrailData) string {
-	if days <= 0 {
+// renderRecentBoxes renders project/task boxes sized to width (the content
+// area column count, i.e. terminal width minus the surrounding grid borders).
+// Each line is padded so right-border characters land on the last column.
+func renderRecentBoxes(days int, data *TrailData, width int) string {
+	if days <= 0 || width <= 7 {
 		return ""
 	}
 	today := time.Now().UTC().Truncate(24 * time.Hour)
@@ -468,7 +473,6 @@ func renderRecentBoxes(days int, data *TrailData) string {
 	}
 	sort.Strings(projectNames)
 
-	const fill = 200 // wider than any terminal; tview clips at screen edge
 	var sb strings.Builder
 
 	for _, projectName := range projectNames {
@@ -503,17 +507,24 @@ func renderRecentBoxes(days int, data *TrailData) string {
 			})
 
 			if !first {
-				fmt.Fprintf(&taskBlocks, " │\n") // gap between tasks
+				// gap line: " │" + spaces + "│ "  (width = 2 + n + 2)
+				fmt.Fprintf(&taskBlocks, " │%s│ \n", strings.Repeat(" ", max(0, width-4)))
 			}
 			taskTitle := " +" + taskName + " "
-			fmt.Fprintf(&taskBlocks, " │ ┌%s%s\n", taskTitle, strings.Repeat("─", fill))
+			// inner top: " │ ┌" + taskTitle + "─"×n + "┐ │ "  (width = 4 + len + n + 4)
+			fmt.Fprintf(&taskBlocks, " │ ┌%s%s┐ │ \n", taskTitle, strings.Repeat("─", max(0, width-8-len(taskTitle))))
 			for _, date := range dates {
-				fmt.Fprintf(&taskBlocks, " │ │ %s\n", date.Format("2006-01-02"))
+				dateStr := date.Format("2006-01-02") // always 10 chars
+				// date line: " │ │ " + date + spaces + "│ │ "  (width = 5 + 10 + n + 4)
+				fmt.Fprintf(&taskBlocks, " │ │ %s%s│ │ \n", dateStr, strings.Repeat(" ", max(0, width-19)))
 				for _, content := range dateMap[date] {
-					fmt.Fprintf(&taskBlocks, " │ │  %s\n", content)
+					cw := len([]rune(content))
+					// content line: " │ │  " + content + spaces + "│ │ "  (width = 6 + cw + n + 4)
+					fmt.Fprintf(&taskBlocks, " │ │  %s%s│ │ \n", content, strings.Repeat(" ", max(0, width-10-cw)))
 				}
 			}
-			fmt.Fprintf(&taskBlocks, " │ └%s\n", strings.Repeat("─", fill))
+			// inner bottom: " │ └" + "─"×n + "┘ │ "  (width = 4 + n + 4)
+			fmt.Fprintf(&taskBlocks, " │ └%s┘ │ \n", strings.Repeat("─", max(0, width-8)))
 			hasContent = true
 			first = false
 		}
@@ -522,16 +533,18 @@ func renderRecentBoxes(days int, data *TrailData) string {
 			continue
 		}
 		projTitle := " @" + projectName + " "
-		fmt.Fprintf(&sb, " ┌%s%s\n", projTitle, strings.Repeat("─", fill))
+		// outer top: " ┌" + projTitle + "─"×n + "┐ "  (width = 2 + len + n + 2)
+		fmt.Fprintf(&sb, " ┌%s%s┐ \n", projTitle, strings.Repeat("─", max(0, width-4-len(projTitle))))
 		sb.WriteString(taskBlocks.String())
-		fmt.Fprintf(&sb, " └%s\n", strings.Repeat("─", fill))
+		// outer bottom: " └" + "─"×n + "┘ "  (width = 2 + n + 2)
+		fmt.Fprintf(&sb, " └%s┘ \n", strings.Repeat("─", max(0, width-4)))
 		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
 func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
-	rs := &RecentScreen{data: data, app: app}
+	rs := &RecentScreen{data: data, app: app, lastN: 28}
 
 	rs.content = tview.NewTextView().SetScrollable(true).SetWrap(false)
 
@@ -543,10 +556,12 @@ func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 		SetChangedFunc(func(text string) {
 			n, err := strconv.Atoi(text)
 			if err != nil || n <= 0 {
+				rs.lastN = 0
 				rs.content.SetText("")
 				return
 			}
-			rs.content.SetText(renderRecentBoxes(n, data))
+			rs.lastN = n
+			rs.content.SetText(renderRecentBoxes(n, data, rs.lastWidth))
 		})
 	rs.days.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -554,11 +569,23 @@ func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 		}
 	})
 
+	// Re-render whenever the terminal is resized.
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		w, _ := screen.Size()
+		cw := w - 2 // subtract left+right grid border
+		if cw != rs.lastWidth {
+			rs.lastWidth = cw
+			if rs.lastN > 0 {
+				rs.content.SetText(renderRecentBoxes(rs.lastN, data, cw))
+			}
+		}
+		return false
+	})
+
 	rs.Root = tview.NewGrid().SetRows(1, 0).SetColumns(0).SetBorders(true)
 	rs.Root.AddItem(rs.days, 0, 0, 1, 1, 0, 0, false)
 	rs.Root.AddItem(rs.content, 1, 0, 1, 1, 0, 0, true)
 
-	rs.content.SetText(renderRecentBoxes(28, data))
 	return rs
 }
 
