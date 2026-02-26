@@ -209,7 +209,7 @@ func newProjectsScreen(data *TrailData, app *tview.Application) *ProjectsScreen 
 	ps.innerPages.AddPage("tasks", ps.taskList, true, false)
 	ps.innerPages.AddPage("content", ps.taskContent, true, false)
 
-	ps.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ps.Root = tview.NewGrid().SetRows(1, 0).SetColumns(0).SetBorders(true)
 	ps.Root.AddItem(ps.filter, 0, 0, 1, 1, 0, 0, false)
 	ps.Root.AddItem(ps.innerPages, 1, 0, 1, 1, 0, 0, true)
 
@@ -331,7 +331,7 @@ func newTasksScreen(data *TrailData, app *tview.Application) *TasksScreen {
 	ts.innerPages.AddPage("list", ts.list, true, true)
 	ts.innerPages.AddPage("content", ts.content, true, false)
 
-	ts.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ts.Root = tview.NewGrid().SetRows(1, 0).SetColumns(0).SetBorders(true)
 	ts.Root.AddItem(ts.filter, 0, 0, 1, 1, 0, 0, false)
 	ts.Root.AddItem(ts.innerPages, 1, 0, 1, 1, 0, 0, true)
 
@@ -441,7 +441,7 @@ func newDaysScreen(data *TrailData, app *tview.Application) *DaysScreen {
 	ds.innerPages.AddPage("list", ds.list, true, true)
 	ds.innerPages.AddPage("detail", ds.detail, true, false)
 
-	ds.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	ds.Root = tview.NewGrid().SetRows(1, 0).SetColumns(0).SetBorders(true)
 	ds.Root.AddItem(ds.filter, 0, 0, 1, 1, 0, 0, false)
 	ds.Root.AddItem(ds.innerPages, 1, 0, 1, 1, 0, 0, true)
 
@@ -538,7 +538,7 @@ func newRecentScreen(data *TrailData, app *tview.Application) *RecentScreen {
 		}
 	})
 
-	rs.Root = tview.NewGrid().SetRows(3, 0).SetColumns(0).SetBorders(true)
+	rs.Root = tview.NewGrid().SetRows(1, 0).SetColumns(0).SetBorders(true)
 	rs.Root.AddItem(rs.days, 0, 0, 1, 1, 0, 0, false)
 	rs.Root.AddItem(rs.content, 1, 0, 1, 1, 0, 0, true)
 
